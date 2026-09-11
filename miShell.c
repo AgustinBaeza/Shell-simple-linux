@@ -161,6 +161,13 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
 
     if (pidHijo == 0){
 
+        /*
+         Agregamos comportamiento respecto a las señales de SIGINT y SIGQUIT
+         Estas señales han de terminar los rocesos dentro de miShell
+         */
+        restaurarSignalPorDefecto(SIGINT);
+        restaurarSignalPorDefecto(SIGQUIT);
+
         // aplicamos las redirecciones si hay
         int cantidadLimpia = aplicarRedirecciones(argumentos, cantidadArgumentos);
         if (cantidadLimpia < 0) {
@@ -214,7 +221,7 @@ Es utilizado en procesos hijos para que, mientras señales como SIGNIN no termin
 
 */
 
-static void RestaurarSignalPorDefecto(int sig) {
+static void restaurarSignalPorDefecto(int sig) {
     /*
     Definimos la estructra de sigaction
     */
@@ -239,6 +246,13 @@ static void RestaurarSignalPorDefecto(int sig) {
 int main(void) {
 char lineaLeida[MAX_LINE];
 char *argumentos[MAX_ARGS];
+
+    /*
+     Ignoramos las señales SIGINT y SIGQUIT para que ellas no terminen miShell
+     */
+
+    ignorarSignal(SIGINT);
+    ignorarSignal(SIGQUIT);
 
 while (1) {
     mostrarPrompt();
