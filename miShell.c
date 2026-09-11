@@ -7,7 +7,8 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <fcntl.h> 
+#include <fcntl.h>
+#include <signal.h>
 
 #define MAX_LINE 1024
 #define MAX_ARGS 64
@@ -179,6 +180,33 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
     waitpid(pidHijo, &estado_salida, 0);
 }
 
+/*
+Ignora la señal recibida en el argumento
+Utilizado para que la shell no se cierre con la señal IGINT
+
+*/
+
+static void ignorarSignal(int sig) {
+    /*
+    Definimos la estructra de sigaction
+    */
+    struct sigaction act;
+    memset(&act, 0, sizeof(act)); // deja inicialmente todos en 0
+    act.sa_handler = SIG_IGN; //SIG_IGN es utilizado para ignorar la señal
+    sigemptyset(&act.sa_mask); //+mientras se ejecuta el manejador, no bloqueamos ninguna señal
+    /*
+   Ya que hemos de ignorar la señal, agregamos la flag SA_RESTART
+   Ella reinicia las llamadas al sistema o syscalls que han sido interrumpidas
+    */
+    sa.sa_flags = SA_RESTART;
+
+    //En caso de algun error
+    if (sigaction(sig, &act, NULL) < 0) {
+        perror("sigaction");
+        exit(1);
+    }
+
+}
 
 int main(void) {
 char lineaLeida[MAX_LINE];
