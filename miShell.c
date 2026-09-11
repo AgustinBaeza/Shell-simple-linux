@@ -208,6 +208,34 @@ static void ignorarSignal(int sig) {
 
 }
 
+/*
+Restaura una señal a su valor por defecto
+Es utilizado en procesos hijos para que, mientras señales como SIGNIN no terminan a miShell, SÍ termnen a procesos iiciados dentro de miShell
+
+*/
+
+static void RestaurarSignalPorDefecto(int sig) {
+    /*
+    Definimos la estructra de sigaction
+    */
+    struct sigaction act;
+    memset(&act, 0, sizeof(act)); // deja inicialmente todos en 0
+    act.sa_handler = SIG_DFL; //SIG_DFL restaura la accion por defecto de la señal
+    sigemptyset(&act.sa_mask); //+mientras se ejecuta el manejador, no bloqueamos ninguna señal
+    /*
+   D
+   Dejamos sin flags
+    */
+    sa.sa_flags = 0;
+
+    //En caso de algun error
+    if (sigaction(sig, &act, NULL) < 0) {
+        perror("sigaction");
+        exit(1);
+    }
+
+}
+
 int main(void) {
 char lineaLeida[MAX_LINE];
 char *argumentos[MAX_ARGS];
