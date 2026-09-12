@@ -12,6 +12,15 @@
 
 #define MAX_LINE 1024
 #define MAX_ARGS 64
+#define MAX_COMANDOS 64
+
+/*
+ Definimos una estructura en la que se agruparan los comandos a la hora de crear pipes.
+ */
+typedef struct {
+    char *arrayArgumentos[MAX_ARGS];
+    int cantidadArgumentos;
+} Comando;
 
 /*
 Imprime el directorio actual de la shell
@@ -45,6 +54,26 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
     argumentos[cantidadArgumentos] = NULL;
 
     return cantidadArgumentos;
+}
+
+
+static int separarPipelines (char *linea,  Comando comandos[], int maxComandos) {
+
+    int contadorComandos = 0;
+    char *segmento = strtok(linea, "|");
+
+    while (segmento != NULL && contadorComandos < maxComandos - 1){
+        //
+        comandos[contadorComandos].cantidadArgumentos =
+            separarEnTokens(segmento,
+                            comandos[contadorComandos].arrayArgumentos,
+                            MAX_ARGS);
+        contadorComandos++;
+        segmento = strtok(NULL, "|");
+    }
+
+    return contadorComandos;
+
 }
 
 
@@ -242,7 +271,6 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
     int estado_salida;
     waitpid(pidHijo, &estado_salida, 0);
 }
-
 
 int main(void) {
 char lineaLeida[MAX_LINE];
