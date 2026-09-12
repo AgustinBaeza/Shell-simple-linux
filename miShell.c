@@ -46,7 +46,11 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
     int cantidadArgumentos = 0;
     char *token = strtok(linea, " \t\n");
 
-    while (token != NULL && cantidadArgumentos < maxArgumentos - 1){
+    while (token != NULL){
+        if (cantidadArgumentos > maxArgumentos - 1) {
+            fprintf(stderr, "miShell: Demasiados argumentos. Límite de argumentos: %d", maxArgumentos);
+            return -1;
+        }
         argumentos[cantidadArgumentos++] = token;
         token = strtok(NULL, " \t\n");
     }
@@ -56,14 +60,21 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
     return cantidadArgumentos;
 }
 
-
+/*
+ Funcion que separa los comandos para poder correr varios comandos al mismo tiempo mediante el uso de tuberías.
+ Separa los comandos según la aparición de '|'
+ */
 static int separarPipelines (char *linea,  Comando comandos[], int maxComandos) {
 
     int contadorComandos = 0;
     char *segmento = strtok(linea, "|");
 
-    while (segmento != NULL && contadorComandos < maxComandos - 1){
-        //
+    while (segmento != NULL){
+        if (contadorComandos > maxComandos - 1) {
+            fprintf(stderr, "miShell: Demasiados comandos. Límite de comandos: %d", maxComandos);
+            return -1;
+        }
+        //Separamos en tokens al segmento guardando la cantidad de argumentos y el array de argumentos-
         comandos[contadorComandos].cantidadArgumentos =
             separarEnTokens(segmento,
                             comandos[contadorComandos].arrayArgumentos,
