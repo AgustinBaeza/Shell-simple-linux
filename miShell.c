@@ -303,6 +303,19 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
     int estado_salida;
     waitpid(pidHijo, &estado_salida, 0);
 }
+/*
+    Funcion para ejecutar varios comandos al mismo tiempo.
+
+ */
+static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
+
+    //Primero verificamos que los comandos NO sean internos.
+    for (int i = 0; i < cantidadComandos; i++) {
+        if (esComandoInterno(comandos[i].arrayArgumentos[0])) {
+            fprintf(stderr, "miShell: %s es un comando interno, y, por lo tanto, no debe ejecutarse mediante fork()+exec()\n", comandos[i].arrayArgumentos[0]);
+        }
+    }
+}
 
 int main(void) {
 char lineaLeida[MAX_LINE];
