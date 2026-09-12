@@ -231,13 +231,20 @@ static int aplicarRedirecciones(char *argumentos[], int cantidadArgumentos) {
 
 /*
 Intenta ejecutar argumentos[0] como comando interno
+Si no hay argumentos retorna 1
+Si no es comando intero retorna -1
+Si se ejecuta exitosamente retorna 1
+Si no ejecuta el comando retorna 0
 */
 static int ejecutarComandoInterno(char *argumentos[], int cantidadArgumentos) {
     if (cantidadArgumentos == 0) {
       return 1; /* línea vacía: no hay nada que ejecutar */
     }
+    else if (esComandoInterno(argumentos[0]) == 0) {
+        return -1; /* no es comando interno: función equivocada */
+    }
 
-    if (strcmp(argumentos[0], "cd") == 0) {
+    else if (strcmp(argumentos[0], "cd") == 0) {
         const char *destino = (cantidadArgumentos > 1) ? argumentos[1] : getenv("HOME");
         if (destino == NULL) {
          destino = "/";
@@ -248,7 +255,7 @@ static int ejecutarComandoInterno(char *argumentos[], int cantidadArgumentos) {
         return 1;
     }
 
-    if (strcmp(argumentos[0], "exit") == 0) {
+    else if (strcmp(argumentos[0], "exit") == 0) {
         int codigoSalida = (cantidadArgumentos > 1) ? atoi(argumentos[1]) : 0;
         exit(codigoSalida);
     }
