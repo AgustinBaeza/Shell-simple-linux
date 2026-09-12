@@ -49,6 +49,62 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
 
 
 /*
+Ignora la señal recibida en el argumento
+Utilizado para que la shell no se cierre con la señal IGINT
+
+*/
+
+static void ignorarSignal(int sig) {
+    /*
+    Definimos la estructra de sigaction
+    */
+    struct sigaction act;
+    memset(&act, 0, sizeof(act)); // deja inicialmente todos en 0
+    act.sa_handler = SIG_IGN; //SIG_IGN es utilizado para ignorar la señal
+    sigemptyset(&act.sa_mask); //+mientras se ejecuta el manejador, no bloqueamos ninguna señal
+    /*
+   Ya que hemos de ignorar la señal, agregamos la flag SA_RESTART
+   Ella reinicia las llamadas al sistema o syscalls que han sido interrumpidas
+    */
+    act.sa_flags = SA_RESTART;
+
+    //En caso de algun error
+    if (sigaction(sig, &act, NULL) < 0) {
+        perror("sigaction");
+        exit(1);
+    }
+
+}
+
+/*
+Restaura una señal a su valor por defecto
+Es utilizado en procesos hijos para que, mientras señales como SIGNIN no terminan a miShell, SÍ termnen a procesos iiciados dentro de miShell
+
+*/
+
+static void restaurarSignalPorDefecto(int sig) {
+    /*
+    Definimos la estructra de sigaction
+    */
+    struct sigaction act;
+    memset(&act, 0, sizeof(act)); // deja inicialmente todos en 0
+    act.sa_handler = SIG_DFL; //SIG_DFL restaura la accion por defecto de la señal
+    sigemptyset(&act.sa_mask); //+mientras se ejecuta el manejador, no bloqueamos ninguna señal
+    /*
+   D
+   Dejamos sin flags
+    */
+    act.sa_flags = 0;
+
+    //En caso de algun error
+    if (sigaction(sig, &act, NULL) < 0) {
+        perror("sigaction");
+        exit(1);
+    }
+
+}
+
+/*
 Recorre argumentos buscando '<', '>' y '>>'.
 Por cada operador encontrado, abre el archivo correspondiente y usa dup2
 para redirigir stdin o stdout, y saca el operador y el archivo de argumentos
@@ -187,61 +243,6 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
     waitpid(pidHijo, &estado_salida, 0);
 }
 
-/*
-Ignora la señal recibida en el argumento
-Utilizado para que la shell no se cierre con la señal IGINT
-
-*/
-
-static void ignorarSignal(int sig) {
-    /*
-    Definimos la estructra de sigaction
-    */
-    struct sigaction act;
-    memset(&act, 0, sizeof(act)); // deja inicialmente todos en 0
-    act.sa_handler = SIG_IGN; //SIG_IGN es utilizado para ignorar la señal
-    sigemptyset(&act.sa_mask); //+mientras se ejecuta el manejador, no bloqueamos ninguna señal
-    /*
-   Ya que hemos de ignorar la señal, agregamos la flag SA_RESTART
-   Ella reinicia las llamadas al sistema o syscalls que han sido interrumpidas
-    */
-    sa.sa_flags = SA_RESTART;
-
-    //En caso de algun error
-    if (sigaction(sig, &act, NULL) < 0) {
-        perror("sigaction");
-        exit(1);
-    }
-
-}
-
-/*
-Restaura una señal a su valor por defecto
-Es utilizado en procesos hijos para que, mientras señales como SIGNIN no terminan a miShell, SÍ termnen a procesos iiciados dentro de miShell
-
-*/
-
-static void restaurarSignalPorDefecto(int sig) {
-    /*
-    Definimos la estructra de sigaction
-    */
-    struct sigaction act;
-    memset(&act, 0, sizeof(act)); // deja inicialmente todos en 0
-    act.sa_handler = SIG_DFL; //SIG_DFL restaura la accion por defecto de la señal
-    sigemptyset(&act.sa_mask); //+mientras se ejecuta el manejador, no bloqueamos ninguna señal
-    /*
-   D
-   Dejamos sin flags
-    */
-    sa.sa_flags = 0;
-
-    //En caso de algun error
-    if (sigaction(sig, &act, NULL) < 0) {
-        perror("sigaction");
-        exit(1);
-    }
-
-}
 
 int main(void) {
 char lineaLeida[MAX_LINE];
