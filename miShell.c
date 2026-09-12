@@ -23,6 +23,20 @@ typedef struct {
 } Comando;
 
 /*
+ Verifica si el comando entregado es interno o externo.
+ Retorna 1 si es interno, 0 si es externo.
+ */
+static int esComandoInterno(const char *nombreComando) {
+    if (strcmp(nombreComando, "cd") == 0 ||
+        strcmp(nombreComando, "exit") == 0 ||
+        strcmp(nombreComando, "jobs") == 0 ||
+        strcmp(nombreComando, "pmon") == 0) {
+        return 1;
+    }
+
+    return 0;
+}
+/*
 Imprime el directorio actual de la shell
 */
 static void mostrarPrompt(void) {
