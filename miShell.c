@@ -474,6 +474,16 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
                     _exit(1);
                 }
             }
+            /*
+             Cerramos los pipes antes de ejecutar los comandos
+             STDOUT_FILENO ahora apunta al pipe
+             y al ejecutar los comandos fork crea una copia de los padres
+             por lo cual cerramos los pipes antes de ejecutar los comandos
+             */
+            for (int j = 0; j < cantidadPipes; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
 
             /*
              *EJECUTAMOS LOS COMANDOS
@@ -493,10 +503,18 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
         }
     }
 
-        }
+    /*
+     Esta parte del codigo está dentro del proceso padre
+     para finalizar cerramos todos los pipes y los liberamos
+     */
+    for (int j = 0; j < cantidadPipes; j++) {
+        close(pipes[j][0]);
+        close(pipes[j][1]);
     }
+    free(pipes);
 
 }
+
 
 int main(void) {
 char lineaLeida[MAX_LINE];
