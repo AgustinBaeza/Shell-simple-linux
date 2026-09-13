@@ -343,6 +343,42 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
             return;
         }
     }
+/*
+ Creamos un proceso hijo para cada comando
+ */
+    for (int i = 0; i < cantidadComandos; i++) {
+        pid_t pid = fork();
+        //Revisamos que el proceso hijo haya sido creado correctamente
+        if (pid < 0) {
+            perror("fork");
+            // Limpiar recursos en el proceso padre
+            for (int j = 0; j < cantidadPipes; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+                }
+            free(pipes);
+            return;
+            }
+
+        else if (pid == 0) {
+
+            // Restaurar señales para que SIGINT y SIGQUIT maten a los procesos hijos
+            restaurarSignalPorDefecto(SIGINT);
+            restaurarSignalPorDefecto(SIGQUIT);
+
+            /*
+             conectamos los extremos de las pipes mediante dup2
+             Ello se utiliza para que la pipe 'i' tenga acceso o pueda leer el output de la pipe 'i-1'
+
+             */
+            if (i > 0) {
+                if (dup2(pipes[i - 1][0], STDIN_FILENO) < 0) {
+                    perror("dup2 stdin");
+                    _exit(1);
+                }
+            }
+        }
+    }
 
 }
 
