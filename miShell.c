@@ -74,15 +74,16 @@ Separa las lineas en tokens
 static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
 
     int cantidadArgumentos = 0;
-    char *token = strtok(linea, " \t\n");
+    char *estadoSeparacion
+    char *token = strtok_r(linea, " \t\n", estadoSeparacion);
 
     while (token != NULL){
-        if (cantidadArgumentos > maxArgumentos - 1) {
+        if (cantidadArgumentos >= maxArgumentos - 1) {
             fprintf(stderr, "miShell: Demasiados argumentos. Límite de argumentos: %d", maxArgumentos);
             return -1;
         }
         argumentos[cantidadArgumentos++] = token;
-        token = strtok(NULL, " \t\n");
+        token = strtok_r(NULL, " \t\n", estadoSeparacion);
     }
 
     argumentos[cantidadArgumentos] = NULL;
@@ -97,7 +98,8 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
 static int separarPipelines (char *linea,  Comando comandos[], int maxComandos) {
 
     int contadorComandos = 0;
-    char *segmento = strtok(linea, "|");
+    char *estadoSeparacion;
+    char *segmento = strtok_r(linea, "|", &estadoSeparacion);
 
     while (segmento != NULL){
         if (contadorComandos > maxComandos - 1) {
@@ -110,7 +112,7 @@ static int separarPipelines (char *linea,  Comando comandos[], int maxComandos) 
                             comandos[contadorComandos].arrayArgumentos,
                             MAX_ARGS);
         contadorComandos++;
-        segmento = strtok(NULL, "|");
+        segmento = strtok_r(NULL, "|", &estadoSeparacion);
     }
 
     return contadorComandos;
@@ -375,7 +377,7 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos, i
 
         /* si execvp vuelve es porque fallo */
         fprintf(stderr, "miShell: %s: %s\n", argumentos[0], strerror(errno));
-        exit(1);
+        _exit(1);
     }
 
     if (esBackground) {
@@ -398,9 +400,22 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
      Primero verificamos que existan almenos dos comandos.
      Si solo existe un comando, o no existen comandos, entonces se llamó a la función equivocada.
      */
-    if (cantidadComandos <2 || comandos == NULL) {
+    if (cantidadComandos <1 || comandos == NULL) {
         return;
     }
+    /*
+     Revisamos el caso especial en el que a pesar de que exista solo un comando, igual se haya ingresado un '|'
+     */
+
+    if (cantidadComandos == 1) {
+        if (esComandoInterno(comandos[0].arrayArgumentos[0])) {
+            ejecutarComandoInterno(comandos[0].arrayArgumentos[0], comandos[0].cantidadArgumentos);
+        }
+        else { //si no es interno, es externo
+            ejecutarComandoExterno(comandos[0].arrayArgumentos[0], comandos[0].cantidadArgumentos, 0);
+        }
+    }
+
     //Verificamos que los comandos NO sean internos.
 
     for (int i = 0; i < cantidadComandos; i++) {
@@ -555,9 +570,11 @@ while (1) {
         Comando comandos[MAX_COMANDOS];
         int cantidadComandos = 0;
         cantidadComandos = separarPipelines(lineaLeida, comandos, MAX_COMANDOS);
+        //ejecutar pipes si hay al menos 1 comando
         if (cantidadComandos > 0) {
             ejecutarPipes(comandos, cantidadComandos);
         }
+        //Saltar a la siguiente iteración del ciclo while
         continue;
     }
 
