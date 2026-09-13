@@ -513,6 +513,13 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
     }
     free(pipes);
 
+    /*
+     Agregamos un waitpid para esperar a que todos los procesos terminen
+     en específico se esperan a los hijos del proceso actual
+     */
+    for (int i = 0; i < cantidadComandos; i++) {
+        waitpid(-1, NULL, 0);
+    }
 }
 
 
