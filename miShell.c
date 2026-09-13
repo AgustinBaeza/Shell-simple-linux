@@ -7,12 +7,28 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <fcntl.h>
+#include <fcntl.h> 
 #include <signal.h>
 
 #define MAX_LINE 1024
 #define MAX_ARGS 64
 #define MAX_COMANDOS 64
+
+#define MAX_JOBS 64
+#define MAX_COMANDO 256
+
+typedef struct {
+    int   numero;
+    pid_t pid;
+    char  comando[MAX_COMANDO];
+    int   activo;
+    int   terminado;
+} Job;
+
+static Job jobsList[MAX_JOBS];
+static int siguienteNumeroJob = 1;
+static volatile sig_atomic_t hayJobsTerminados = 0;
+
 
 /*
  Definimos una estructura en la que se agruparan los comandos a la hora de crear pipes.
@@ -46,7 +62,7 @@ static void mostrarPrompt(void) {
         printf("miShell: %s$ ", directorioActual);
     }
     else{
-        // si getcwd falla
+        /* si getcwd falla */
         printf("miShell:?$ ");
     }
     fflush(stdout);
@@ -229,6 +245,75 @@ static int aplicarRedirecciones(char *argumentos[], int cantidadArgumentos) {
     return nuevaCantidad;
 }
 
+/* Guarda el proceso en el arreglo de jobs */
+int agregarJob(pid_t pid, char *argumentos[], int cantidadArgumentos) {
+    for (int i = 0; i < MAX_JOBS; i++) {
+        /* Buscamos un espacio libre en el arreglo */
+        if (jobsList[i].activo == 0) {
+            jobsList[i].numero = siguienteNumeroJob;
+            siguienteNumeroJob++; /* aumento para el proximo */
+            jobsList[i].pid = pid;
+            jobsList[i].activo = 1;
+            jobsList[i].terminado = 0;
+            
+            /* Armamos el comando como un solo string usando strcat */
+            strcpy(jobsList[i].comando, ""); 
+            for (int j = 0; j < cantidadArgumentos; j++) {
+                strcat(jobsList[i].comando, argumentos[j]);
+                strcat(jobsList[i].comando, " "); /* espacio entre argumentos */
+            }
+            
+            return jobsList[i].numero;
+        }
+    }
+    return -1; /* Retorna -1 si la lista esta llena */
+}
+
+/* Imprime los jobs que se estan ejecutando */
+void listarJobs() {
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (jobsList[i].activo == 1) {
+            printf("[%d] %d Ejecutando %s\n", jobsList[i].numero, jobsList[i].pid, jobsList[i].comando);
+        }
+    }
+}
+
+/* Revisa la lista y avisa si alguno ya termino */
+void notificarJobsTerminados() {
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (jobsList[i].activo == 1 && jobsList[i].terminado == 1) {
+            printf("[%d]+ Done %s\n", jobsList[i].numero, jobsList[i].comando);
+            jobsList[i].activo = 0; /* Lo liberamos para que se pueda sobreescribir */
+        }
+    }
+    hayJobsTerminados = 0; /* reseteamos la flag */
+}
+
+/* Esta funcion se ejecuta automaticamente cuando muere un proceso hijo */
+void manejadorSigchld(int señal) {
+    (void)señal;
+    int estadoSalida;
+    pid_t pid;
+
+    /* Usamos WNOHANG para no bloquear la shell si no hay hijos muertos */
+    while ((pid = waitpid(-1, &estadoSalida, WNOHANG)) > 0) {
+        
+        /* Buscamos cual de nuestros jobs fue el que murio */
+        for (int i = 0; i < MAX_JOBS; i++) {
+            if (jobsList[i].pid == pid) {
+                jobsList[i].terminado = 1; /* lo marcamos para imprimirlo despues */
+            }
+        }
+        hayJobsTerminados = 1; /* Le avisamos al main que hay algo para imprimir */
+    }
+}
+
+/* Configura la captura de la señal */
+void instalarManejadorSigchld() {
+    /* Cuando un hijo termine (SIGCHLD), llama a manejadorSigchld. */
+    signal(SIGCHLD, manejadorSigchld);
+}
+
 /*
 Intenta ejecutar argumentos[0] como comando interno
 Si no hay argumentos retorna 1
@@ -256,6 +341,11 @@ static int ejecutarComandoInterno(char *argumentos[], int cantidadArgumentos) {
         exit(codigoSalida);
     }
 
+    if (strcmp(argumentos[0], "jobs") == 0) {
+        listarJobs();
+        return 1;
+    }
+
 
     return 0;
 }
@@ -264,7 +354,7 @@ static int ejecutarComandoInterno(char *argumentos[], int cantidadArgumentos) {
 Ejecuta y crea un proceso con fork, y utilizando execvp para hacer otro proceso
 y espera con waitpid
 */
-static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
+static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos, int esBackground) {
     pid_t pidHijo = fork();
 
     if (pidHijo < 0){
@@ -274,30 +364,29 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
 
     if (pidHijo == 0){
 
-        /*
-         Agregamos comportamiento respecto a las señales de SIGINT y SIGQUIT
-         Estas señales han de terminar los rocesos dentro de miShell
-         */
-        restaurarSignalPorDefecto(SIGINT);
-        restaurarSignalPorDefecto(SIGQUIT);
-
-        // aplicamos las redirecciones si hay
+        /* aplicamos las redirecciones si hay */
         int cantidadLimpia = aplicarRedirecciones(argumentos, cantidadArgumentos);
         if (cantidadLimpia < 0) {
           _exit(1);
         }
 
-        // proceso hijo: reemplazamos su imagen por el comando pedido
+        /* proceso hijo: reemplazamos su imagen por el comando pedido */
         execvp(argumentos[0], argumentos);
 
-        // si execvp vuelve es porque fallo
+        /* si execvp vuelve es porque fallo */
         fprintf(stderr, "miShell: %s: %s\n", argumentos[0], strerror(errno));
-        _exit(127);
+        exit(1);
     }
 
-    // sheel espera que el proceso hijo termine
-    int estado_salida;
-    waitpid(pidHijo, &estado_salida, 0);
+    if (esBackground) {
+        int numero = agregarJob(pidHijo, argumentos, cantidadArgumentos);
+        if (numero > 0) {
+            printf("[%d] %d\n", numero, (int)pidHijo);
+        }
+    } else {
+        int estadoSalida;
+        waitpid(pidHijo, &estadoSalida, 0);
+    }
 }
 /*
     Funcion para ejecutar varios comandos al mismo tiempo.
@@ -392,9 +481,14 @@ char *argumentos[MAX_ARGS];
 
     ignorarSignal(SIGINT);
     ignorarSignal(SIGQUIT);
+instalarManejadorSigchld();
 
 while (1) {
     mostrarPrompt();
+
+    if (hayJobsTerminados) {
+        notificarJobsTerminados();
+    }
 
     if (fgets(lineaLeida, sizeof(lineaLeida), stdin) == NULL) {
         printf("\n");
@@ -406,11 +500,19 @@ while (1) {
         continue;
     }
 
+    int esBackground = 0;
+        if (strcmp(argumentos[cantidadArgumentos - 1], "&") == 0) {
+        esBackground = 1;
+        cantidadArgumentos--;
+        argumentos[cantidadArgumentos] = NULL;
+    }
+
+
     if (ejecutarComandoInterno(argumentos, cantidadArgumentos)) {
        continue;
     }
 
-    ejecutarComandoExterno(argumentos, cantidadArgumentos);
+    ejecutarComandoExterno(argumentos, cantidadArgumentos, esBackground);
 }
 
 return 0;
