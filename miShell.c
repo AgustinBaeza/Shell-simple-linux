@@ -74,8 +74,8 @@ Separa las lineas en tokens
 static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
 
     int cantidadArgumentos = 0;
-    char *estadoSeparacion
-    char *token = strtok_r(linea, " \t\n", estadoSeparacion);
+    char *estadoSeparacion;
+    char *token = strtok_r(linea, " \t\n", &estadoSeparacion);
 
     while (token != NULL){
         if (cantidadArgumentos >= maxArgumentos - 1) {
@@ -83,7 +83,7 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
             return -1;
         }
         argumentos[cantidadArgumentos++] = token;
-        token = strtok_r(NULL, " \t\n", estadoSeparacion);
+        token = strtok_r(NULL, " \t\n", &estadoSeparacion);
     }
 
     argumentos[cantidadArgumentos] = NULL;
@@ -409,10 +409,10 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
 
     if (cantidadComandos == 1) {
         if (esComandoInterno(comandos[0].arrayArgumentos[0])) {
-            ejecutarComandoInterno(comandos[0].arrayArgumentos[0], comandos[0].cantidadArgumentos);
+            ejecutarComandoInterno(comandos[0].arrayArgumentos, comandos[0].cantidadArgumentos);
         }
         else { //si no es interno, es externo
-            ejecutarComandoExterno(comandos[0].arrayArgumentos[0], comandos[0].cantidadArgumentos, 0);
+            ejecutarComandoExterno(comandos[0].arrayArgumentos, comandos[0].cantidadArgumentos, 0);
         }
     }
 
