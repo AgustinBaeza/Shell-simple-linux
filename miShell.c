@@ -547,6 +547,20 @@ while (1) {
         break;
     }
 
+    /*
+     Verificamos si la linea leida presenta varios comandos separados por |
+     */
+
+    if (strchr(lineaLeida, '|')!= NULL) {
+        Comando comandos[MAX_COMANDOS];
+        int cantidadComandos = 0;
+        cantidadComandos = separarPipelines(lineaLeida, comandos, MAX_COMANDOS);
+        if (cantidadComandos > 0) {
+            ejecutarPipes(comandos, cantidadComandos);
+        }
+        continue;
+    }
+
     int cantidadArgumentos = separarEnTokens(lineaLeida, argumentos, MAX_ARGS);
     if (cantidadArgumentos == 0) {
         continue;
