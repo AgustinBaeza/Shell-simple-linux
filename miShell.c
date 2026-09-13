@@ -74,15 +74,16 @@ Separa las lineas en tokens
 static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
 
     int cantidadArgumentos = 0;
-    char *token = strtok(linea, " \t\n");
+    char *estadoSeparacion;
+    char *token = strtok_r(linea, " \t\n", &estadoSeparacion);
 
     while (token != NULL){
-        if (cantidadArgumentos > maxArgumentos - 1) {
+        if (cantidadArgumentos >= maxArgumentos - 1) {
             fprintf(stderr, "miShell: Demasiados argumentos. Límite de argumentos: %d", maxArgumentos);
             return -1;
         }
         argumentos[cantidadArgumentos++] = token;
-        token = strtok(NULL, " \t\n");
+        token = strtok_r(NULL, " \t\n", &estadoSeparacion);
     }
 
     argumentos[cantidadArgumentos] = NULL;
@@ -97,7 +98,8 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
 static int separarPipelines (char *linea,  Comando comandos[], int maxComandos) {
 
     int contadorComandos = 0;
-    char *segmento = strtok(linea, "|");
+    char *estadoSeparacion;
+    char *segmento = strtok_r(linea, "|", &estadoSeparacion);
 
     while (segmento != NULL){
         if (contadorComandos > maxComandos - 1) {
@@ -110,7 +112,7 @@ static int separarPipelines (char *linea,  Comando comandos[], int maxComandos) 
                             comandos[contadorComandos].arrayArgumentos,
                             MAX_ARGS);
         contadorComandos++;
-        segmento = strtok(NULL, "|");
+        segmento = strtok_r(NULL, "|", &estadoSeparacion);
     }
 
     return contadorComandos;
@@ -375,7 +377,7 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos, i
 
         /* si execvp vuelve es porque fallo */
         fprintf(stderr, "miShell: %s: %s\n", argumentos[0], strerror(errno));
-        exit(1);
+        _exit(1);
     }
 
     if (esBackground) {
@@ -398,9 +400,22 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
      Primero verificamos que existan almenos dos comandos.
      Si solo existe un comando, o no existen comandos, entonces se llamó a la función equivocada.
      */
-    if (cantidadComandos <2) {
+    if (cantidadComandos <1 || comandos == NULL) {
         return;
     }
+    /*
+     Revisamos el caso especial en el que a pesar de que exista solo un comando, igual se haya ingresado un '|'
+     */
+
+    if (cantidadComandos == 1) {
+        if (esComandoInterno(comandos[0].arrayArgumentos[0])) {
+            ejecutarComandoInterno(comandos[0].arrayArgumentos, comandos[0].cantidadArgumentos);
+        }
+        else { //si no es interno, es externo
+            ejecutarComandoExterno(comandos[0].arrayArgumentos, comandos[0].cantidadArgumentos, 0);
+        }
+    }
+
     //Verificamos que los comandos NO sean internos.
 
     for (int i = 0; i < cantidadComandos; i++) {
@@ -458,7 +473,6 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
             /*
              conectamos los extremos de las pipes mediante dup2
              Ello se utiliza para que la pipe 'i' tenga acceso o pueda leer el output de la pipe 'i-1'
-
              */
             if (i > 0) {
                 if (dup2(pipes[i - 1][0], STDIN_FILENO) < 0) {
@@ -466,10 +480,63 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
                     _exit(1);
                 }
             }
+            /*
+             Ahora conectamos el stdout de 'i-1' con el pipe 'i'
+             */
+            if (i < cantidadComandos - 1) {
+                if (dup2(pipes[i][1], STDOUT_FILENO) == -1) {
+                    perror("dup2 stdout");
+                    _exit(1);
+                }
+            }
+            /*
+             Cerramos los pipes antes de ejecutar los comandos
+             STDOUT_FILENO ahora apunta al pipe
+             y al ejecutar los comandos fork crea una copia de los padres
+             por lo cual cerramos los pipes antes de ejecutar los comandos
+             */
+            for (int j = 0; j < cantidadPipes; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+
+            /*
+             *EJECUTAMOS LOS COMANDOS
+             *Aplicar redirecciones de archivos si es que las hay
+             */
+            int cantidadLimpia = aplicarRedirecciones(comandos[i].arrayArgumentos, comandos[i].cantidadArgumentos);
+            //Si hubo un error terminamos a miShell
+            if (cantidadLimpia < 0) {
+                _exit(1);
+            }
+
+            // Ejecutar el comando
+            execvp(comandos[i].arrayArgumentos[0], comandos[i].arrayArgumentos);
+
+            fprintf(stderr, "miShell: %s: %s\n", comandos[i].arrayArgumentos[0], strerror(errno));
+            _exit(1);
         }
     }
 
+    /*
+     Esta parte del codigo está dentro del proceso padre
+     para finalizar cerramos todos los pipes y los liberamos
+     */
+    for (int j = 0; j < cantidadPipes; j++) {
+        close(pipes[j][0]);
+        close(pipes[j][1]);
+    }
+    free(pipes);
+
+    /*
+     Agregamos un waitpid para esperar a que todos los procesos terminen
+     en específico se esperan a los hijos del proceso actual
+     */
+    for (int i = 0; i < cantidadComandos; i++) {
+        waitpid(-1, NULL, 0);
+    }
 }
+
 
 int main(void) {
 char lineaLeida[MAX_LINE];
@@ -493,6 +560,22 @@ while (1) {
     if (fgets(lineaLeida, sizeof(lineaLeida), stdin) == NULL) {
         printf("\n");
         break;
+    }
+
+    /*
+     Verificamos si la linea leida presenta varios comandos separados por |
+     */
+
+    if (strchr(lineaLeida, '|')!= NULL) {
+        Comando comandos[MAX_COMANDOS];
+        int cantidadComandos = 0;
+        cantidadComandos = separarPipelines(lineaLeida, comandos, MAX_COMANDOS);
+        //ejecutar pipes si hay al menos 1 comando
+        if (cantidadComandos > 0) {
+            ejecutarPipes(comandos, cantidadComandos);
+        }
+        //Saltar a la siguiente iteración del ciclo while
+        continue;
     }
 
     int cantidadArgumentos = separarEnTokens(lineaLeida, argumentos, MAX_ARGS);
