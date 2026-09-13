@@ -232,16 +232,12 @@ static int aplicarRedirecciones(char *argumentos[], int cantidadArgumentos) {
 /*
 Intenta ejecutar argumentos[0] como comando interno
 Si no hay argumentos retorna 1
-Si no es comando intero retorna -1
 Si se ejecuta exitosamente retorna 1
 Si no ejecuta el comando retorna 0
 */
 static int ejecutarComandoInterno(char *argumentos[], int cantidadArgumentos) {
     if (cantidadArgumentos == 0) {
       return 1; /* línea vacía: no hay nada que ejecutar */
-    }
-    else if (esComandoInterno(argumentos[0]) == 0) {
-        return -1; /* no es comando interno: función equivocada */
     }
 
     else if (strcmp(argumentos[0], "cd") == 0) {
@@ -309,12 +305,45 @@ static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos) {
  */
 static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
 
-    //Primero verificamos que los comandos NO sean internos.
+    /*
+     Primero verificamos que existan almenos dos comandos.
+     Si solo existe un comando, o no existen comandos, entonces se llamó a la función equivocada.
+     */
+    if (cantidadComandos <2) {
+        return;
+    }
+    //Verificamos que los comandos NO sean internos.
+
     for (int i = 0; i < cantidadComandos; i++) {
         if (esComandoInterno(comandos[i].arrayArgumentos[0])) {
             fprintf(stderr, "miShell: %s es un comando interno, y, por lo tanto, no debe ejecutarse mediante fork()+exec()\n", comandos[i].arrayArgumentos[0]);
+            return;
         }
     }
+
+    int cantidadPipes = cantidadComandos - 1;
+    //Reservamos el espacio para todos los pipes
+    int (*pipes)[2] = malloc(sizeof(int[2]) * cantidadPipes);
+
+    if (pipes == NULL) {
+        perror("malloc");
+        return;
+    }
+    for (int i = 0; i < cantidadPipes; i++) {
+
+        //Revisamos si hubo algun error al crear las pipes
+        if (pipe(pipes[i]) == -1) {
+            perror("pipe");
+            // limpiamos los pipes si hubo un error
+            for (int j = 0; j < i; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+            free(pipes);
+            return;
+        }
+    }
+
 }
 
 int main(void) {
