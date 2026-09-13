@@ -398,7 +398,7 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
      Primero verificamos que existan almenos dos comandos.
      Si solo existe un comando, o no existen comandos, entonces se llamó a la función equivocada.
      */
-    if (cantidadComandos <2) {
+    if (cantidadComandos <2 || comandos == NULL) {
         return;
     }
     //Verificamos que los comandos NO sean internos.
@@ -458,7 +458,6 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
             /*
              conectamos los extremos de las pipes mediante dup2
              Ello se utiliza para que la pipe 'i' tenga acceso o pueda leer el output de la pipe 'i-1'
-
              */
             if (i > 0) {
                 if (dup2(pipes[i - 1][0], STDIN_FILENO) < 0) {
@@ -466,6 +465,34 @@ static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
                     _exit(1);
                 }
             }
+            /*
+             Ahora conectamos el stdout de 'i-1' con el pipe 'i'
+             */
+            if (i < cantidadComandos - 1) {
+                if (dup2(pipes[i][1], STDOUT_FILENO) == -1) {
+                    perror("dup2 stdout");
+                    _exit(1);
+                }
+            }
+
+            /*
+             *EJECUTAMOS LOS COMANDOS
+             *Aplicar redirecciones de archivos si es que las hay
+             */
+            int cantidadLimpia = aplicarRedirecciones(comandos[i].arrayArgumentos, comandos[i].cantidadArgumentos);
+            //Si hubo un error terminamos a miShell
+            if (cantidadLimpia < 0) {
+                _exit(1);
+            }
+
+            // Ejecutar el comando
+            execvp(comandos[i].arrayArgumentos[0], comandos[i].arrayArgumentos);
+
+            fprintf(stderr, "miShell: %s: %s\n", comandos[i].arrayArgumentos[0], strerror(errno));
+            _exit(1);
+        }
+    }
+
         }
     }
 
