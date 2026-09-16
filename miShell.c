@@ -10,6 +10,7 @@
 #include <fcntl.h> 
 #include <signal.h>
 #include <time.h>
+#include <ctype.h>
 
 #define MAX_LINE 1024
 #define MAX_ARGS 64
@@ -21,6 +22,11 @@
 typedef struct {
     int   numero;
     pid_t pid;
+
+    pid_t pids[MAX_COMANDOS];
+    int   cantidadProcesos;
+    int   procesosPendientes;
+
     char  comando[MAX_COMANDO];
     int   activo;
     int   terminado;
@@ -113,27 +119,40 @@ static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
  Funcion que separa los comandos para poder correr varios comandos al mismo tiempo mediante el uso de tuberías.
  Separa los comandos según la aparición de '|'
  */
-static int separarPipelines (char *linea,  Comando comandos[], int maxComandos) {
-
+static int separarPipelines(char *linea, Comando comandos[], int maxComandos) {
     int contadorComandos = 0;
-    char *segmento = strtok(linea, "|");
 
-    while (segmento != NULL){
-        if (contadorComandos > maxComandos - 1) {
-            fprintf(stderr, "miShell: Demasiados comandos. Límite de comandos: %d", maxComandos);
+    char *saveptr = NULL;
+    char *segmento = strtok_r(linea, "|", &saveptr);
+
+    while (segmento != NULL) {
+
+        if (contadorComandos >= maxComandos) {
+            fprintf(stderr,
+                    "miShell: Demasiados comandos. Límite: %d\n",
+                    maxComandos);
             return -1;
         }
-        //Separamos en tokens al segmento guardando la cantidad de argumentos y el array de argumentos-
+
         comandos[contadorComandos].cantidadArgumentos =
-            separarEnTokens(segmento,
-                            comandos[contadorComandos].arrayArgumentos,
-                            MAX_ARGS);
+            separarEnTokens(
+                segmento,
+                comandos[contadorComandos].arrayArgumentos,
+                MAX_ARGS
+            );
+
+        if (comandos[contadorComandos].cantidadArgumentos <= 0) {
+            fprintf(stderr,
+                    "miShell: comando vacío en la tubería\n");
+            return -1;
+        }
+
         contadorComandos++;
-        segmento = strtok(NULL, "|");
+
+        segmento = strtok_r(NULL, "|", &saveptr);
     }
 
     return contadorComandos;
-
 }
 
 
@@ -264,48 +283,72 @@ static int aplicarRedirecciones(char *argumentos[], int cantidadArgumentos) {
     return nuevaCantidad;
 }
 
-/* Guarda el proceso en el arreglo de jobs */
-int agregarJob(pid_t pid, char *argumentos[], int cantidadArgumentos) {
+/* Guarda un comando o una tubería completa como un job */
+static int agregarJob(pid_t pids[], int cantidadProcesos, const char *comando) {
+
     for (int i = 0; i < MAX_JOBS; i++) {
-        /* Buscamos un espacio libre en el arreglo */
+
         if (jobsList[i].activo == 0) {
-            jobsList[i].numero = siguienteNumeroJob;
-            siguienteNumeroJob++; /* aumento para el proximo */
-            jobsList[i].pid = pid;
+
+            jobsList[i].numero = siguienteNumeroJob++;
+            jobsList[i].pid = pids[0];
+
+            jobsList[i].cantidadProcesos = cantidadProcesos;
+            jobsList[i].procesosPendientes = cantidadProcesos;
+
             jobsList[i].activo = 1;
             jobsList[i].terminado = 0;
-            
-            /* Armamos el comando como un solo string usando strcat */
-            strcpy(jobsList[i].comando, ""); 
-            for (int j = 0; j < cantidadArgumentos; j++) {
-                strcat(jobsList[i].comando, argumentos[j]);
-                strcat(jobsList[i].comando, " "); /* espacio entre argumentos */
+
+            for (int j = 0; j < cantidadProcesos; j++) {
+                jobsList[i].pids[j] = pids[j];
             }
-            
+
+            snprintf(
+                jobsList[i].comando,
+                sizeof(jobsList[i].comando),
+                "%s",
+                comando
+            );
+
             return jobsList[i].numero;
         }
     }
-    return -1; /* Retorna -1 si la lista esta llena */
+
+    return -1;
 }
 
 /* Imprime los jobs que se estan ejecutando */
-void listarJobs() {
+void listarJobs(void) {
+
     for (int i = 0; i < MAX_JOBS; i++) {
+
         if (jobsList[i].activo == 1) {
-            printf("[%d] %d Ejecutando %s\n", jobsList[i].numero, jobsList[i].pid, jobsList[i].comando);
+
+            printf("[%d] %d Ejecutando %s\n",
+                   jobsList[i].numero,
+                   jobsList[i].pid,
+                   jobsList[i].comando);
         }
     }
 }
 
 /* Revisa la lista y avisa si alguno ya termino */
-void notificarJobsTerminados() {
+void notificarJobsTerminados(void) {
+
     for (int i = 0; i < MAX_JOBS; i++) {
-        if (jobsList[i].activo == 1 && jobsList[i].terminado == 1) {
-            printf("[%d]+ Done %s\n", jobsList[i].numero, jobsList[i].comando);
-            jobsList[i].activo = 0; /* Lo liberamos para que se pueda sobreescribir */
+
+        if (jobsList[i].activo == 1 &&
+            jobsList[i].terminado == 1) {
+
+            printf("[%d]+ Done %s\n",
+                   jobsList[i].numero,
+                   jobsList[i].comando);
+
+            jobsList[i].activo = 0;
         }
     }
-    hayJobsTerminados = 0; /* reseteamos la flag */
+
+    hayJobsTerminados = 0;
 }
 
 /* Esta funcion se ejecuta automaticamente cuando muere un proceso hijo */
@@ -314,25 +357,81 @@ void manejadorSigchld(int señal) {
     int estadoSalida;
     pid_t pid;
 
-    /* Usamos WNOHANG para no bloquear la shell si no hay hijos muertos */
-    while ((pid = waitpid(-1, &estadoSalida, WNOHANG)) > 0) {
-        
-        /* Buscamos cual de nuestros jobs fue el que murio */
+    while ((pid = waitpid(-1,
+                          &estadoSalida,
+                          WNOHANG)) > 0) {
+
         for (int i = 0; i < MAX_JOBS; i++) {
-            if (jobsList[i].pid == pid) {
-                jobsList[i].terminado = 1; /* lo marcamos para imprimirlo despues */
+
+            if (jobsList[i].activo != 1) {
+                continue;
+            }
+
+            for (int j = 0;
+                 j < jobsList[i].cantidadProcesos;
+                 j++) {
+
+                if (jobsList[i].pids[j] == pid) {
+
+                    if (jobsList[i].procesosPendientes > 0) {
+                        jobsList[i].procesosPendientes--;
+                    }
+
+                    if (jobsList[i].procesosPendientes == 0) {
+
+                        jobsList[i].terminado = 1;
+                        hayJobsTerminados = 1;
+                    }
+
+                    break;
+                }
             }
         }
-        hayJobsTerminados = 1; /* Le avisamos al main que hay algo para imprimir */
     }
 }
 
 /* Configura la captura de la señal */
-void instalarManejadorSigchld() {
-    /* Cuando un hijo termine (SIGCHLD), llama a manejadorSigchld. */
-    signal(SIGCHLD, manejadorSigchld);
+void instalarManejadorSigchld(void) {
+    struct sigaction act;
+    memset(&act, 0, sizeof(act));
+    act.sa_handler = manejadorSigchld;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+
+    if (sigaction(SIGCHLD, &act, NULL) < 0) {
+        perror("sigaction SIGCHLD");
+        exit(1);
+    }
 }
 
+static void bloquearSigchld(sigset_t *mascaraAnterior) {
+
+    sigset_t mascara;
+
+    sigemptyset(&mascara);
+    sigaddset(&mascara, SIGCHLD);
+
+    if (sigprocmask(SIG_BLOCK,
+                    &mascara,
+                    mascaraAnterior) < 0) {
+
+        perror("sigprocmask");
+        exit(1);
+    }
+}
+
+
+static void restaurarMascara(
+    const sigset_t *mascaraAnterior) {
+
+    if (sigprocmask(SIG_SETMASK,
+                    mascaraAnterior,
+                    NULL) < 0) {
+
+        perror("sigprocmask");
+        exit(1);
+    }
+}
 /*
 Intenta ejecutar argumentos[0] como comando interno
 Si no hay argumentos retorna 1
@@ -764,166 +863,586 @@ static int ejecutarComandoInterno(char *argumentos[], int cantidadArgumentos) {
 Ejecuta y crea un proceso con fork, y utilizando execvp para hacer otro proceso
 y espera con waitpid
 */
-static void ejecutarComandoExterno(char *argumentos[], int cantidadArgumentos, int esBackground) {
+static void ejecutarComandoExterno(
+    char *argumentos[],
+    int cantidadArgumentos,
+    int esBackground,
+    const char *comandoOriginal) {
+    sigset_t mascaraAnterior;
+    bloquearSigchld(&mascaraAnterior);
     pid_t pidHijo = fork();
 
-    if (pidHijo < 0){
+    if (pidHijo < 0) {
+
+        restaurarMascara(&mascaraAnterior);
+
         perror("fork");
         exit(1);
     }
 
-    if (pidHijo == 0){
 
-        /* aplicamos las redirecciones si hay */
-        int cantidadLimpia = aplicarRedirecciones(argumentos, cantidadArgumentos);
-        if (cantidadLimpia < 0) {
-          _exit(1);
+    if (pidHijo == 0) {
+
+        restaurarMascara(&mascaraAnterior);
+
+        /*
+         * Los comandos foreground deben volver
+         * al comportamiento normal de Ctrl+C.
+         */
+        if (!esBackground) {
+
+            restaurarSignalPorDefecto(SIGINT);
+            restaurarSignalPorDefecto(SIGQUIT);
         }
 
-        /* proceso hijo: reemplazamos su imagen por el comando pedido */
+
+        int cantidadLimpia =
+            aplicarRedirecciones(
+                argumentos,
+                cantidadArgumentos
+            );
+
+        if (cantidadLimpia <= 0) {
+            _exit(1);
+        }
+
+
         execvp(argumentos[0], argumentos);
 
-        /* si execvp vuelve es porque fallo */
-        fprintf(stderr, "miShell: %s: %s\n", argumentos[0], strerror(errno));
-        exit(1);
+
+        fprintf(stderr,
+                "miShell: %s: %s\n",
+                argumentos[0],
+                strerror(errno));
+
+        _exit(127);
     }
 
+
     if (esBackground) {
-        int numero = agregarJob(pidHijo, argumentos, cantidadArgumentos);
+
+        pid_t pids[1] = { pidHijo };
+
+        int numero =
+            agregarJob(
+                pids,
+                1,
+                comandoOriginal
+            );
+
         if (numero > 0) {
-            printf("[%d] %d\n", numero, (int)pidHijo);
+
+            printf("[%d] %d\n",
+                   numero,
+                   (int)pidHijo);
+
+        } else {
+
+            fprintf(stderr,
+                    "miShell: lista de jobs llena\n");
         }
+
+        restaurarMascara(&mascaraAnterior);
+
     } else {
+
         int estadoSalida;
-        waitpid(pidHijo, &estadoSalida, 0);
+
+        while (waitpid(pidHijo,
+                       &estadoSalida,
+                       0) < 0 &&
+               errno == EINTR) {
+        }
+
+        restaurarMascara(&mascaraAnterior);
     }
 }
 /*
     Funcion para ejecutar varios comandos al mismo tiempo.
 
  */
-static void ejecutarPipes(Comando comandos[], int cantidadComandos) {
+static void ejecutarPipes(
+    Comando comandos[],
+    int cantidadComandos,
+    int esBackground,
+    const char *comandoOriginal) {
 
-    /*
-     Primero verificamos que existan almenos dos comandos.
-     Si solo existe un comando, o no existen comandos, entonces se llamó a la función equivocada.
-     */
-    if (cantidadComandos <2) {
+    if (cantidadComandos < 2) {
         return;
     }
-    //Verificamos que los comandos NO sean internos.
 
+    /* Verificamos los comandos */
     for (int i = 0; i < cantidadComandos; i++) {
-        if (esComandoInterno(comandos[i].arrayArgumentos[0])) {
-            fprintf(stderr, "miShell: %s es un comando interno, y, por lo tanto, no debe ejecutarse mediante fork()+exec()\n", comandos[i].arrayArgumentos[0]);
+
+        if (comandos[i].cantidadArgumentos <= 0) {
+
+            fprintf(stderr,
+                    "miShell: comando vacío en la tubería\n");
+
+            return;
+        }
+
+
+        if (esComandoInterno(
+                comandos[i].arrayArgumentos[0])) {
+
+            fprintf(stderr,
+                    "miShell: el comando interno '%s' "
+                    "no se admite dentro de una tubería\n",
+                    comandos[i].arrayArgumentos[0]);
+
             return;
         }
     }
 
     int cantidadPipes = cantidadComandos - 1;
-    //Reservamos el espacio para todos los pipes
-    int (*pipes)[2] = malloc(sizeof(int[2]) * cantidadPipes);
+
+    int (*pipes)[2] =
+        malloc(sizeof(int[2]) * cantidadPipes);
+
 
     if (pipes == NULL) {
         perror("malloc");
         return;
     }
+
+
+    /* Creamos todos los pipes */
     for (int i = 0; i < cantidadPipes; i++) {
 
-        //Revisamos si hubo algun error al crear las pipes
-        if (pipe(pipes[i]) == -1) {
+        if (pipe(pipes[i]) < 0) {
+
             perror("pipe");
-            // limpiamos los pipes si hubo un error
+
             for (int j = 0; j < i; j++) {
+
                 close(pipes[j][0]);
                 close(pipes[j][1]);
             }
+
             free(pipes);
+
             return;
         }
     }
-/*
- Creamos un proceso hijo para cada comando
- */
-    for (int i = 0; i < cantidadComandos; i++) {
+
+
+    sigset_t mascaraAnterior;
+    bloquearSigchld(&mascaraAnterior);
+    pid_t pids[MAX_COMANDOS];
+
+    int creados = 0;
+
+
+    /*
+     * Creamos un hijo por cada comando
+     */
+    for (int i = 0;
+         i < cantidadComandos;
+         i++) {
+
         pid_t pid = fork();
-        //Revisamos que el proceso hijo haya sido creado correctamente
+
+
         if (pid < 0) {
+
             perror("fork");
-            // Limpiar recursos en el proceso padre
-            for (int j = 0; j < cantidadPipes; j++) {
+
+
+            for (int j = 0;
+                 j < cantidadPipes;
+                 j++) {
+
                 close(pipes[j][0]);
                 close(pipes[j][1]);
-                }
-            free(pipes);
-            return;
             }
 
-        else if (pid == 0) {
 
-            // Restaurar señales para que SIGINT y SIGQUIT maten a los procesos hijos
-            restaurarSignalPorDefecto(SIGINT);
-            restaurarSignalPorDefecto(SIGQUIT);
+            for (int j = 0;
+                 j < creados;
+                 j++) {
+
+                kill(pids[j], SIGTERM);
+
+                waitpid(
+                    pids[j],
+                    NULL,
+                    0
+                );
+            }
+
+
+            free(pipes);
+
+            restaurarMascara(
+                &mascaraAnterior
+            );
+
+            exit(1);
+        }
+
+
+        /*
+         * PROCESO HIJO
+         */
+        if (pid == 0) {
+
+            restaurarMascara(
+                &mascaraAnterior
+            );
+
+
+            if (!esBackground) {
+
+                restaurarSignalPorDefecto(
+                    SIGINT
+                );
+
+                restaurarSignalPorDefecto(
+                    SIGQUIT
+                );
+            }
+
 
             /*
-             conectamos los extremos de las pipes mediante dup2
-             Ello se utiliza para que la pipe 'i' tenga acceso o pueda leer el output de la pipe 'i-1'
-
+             * Si no es el primer comando,
+             * recibe stdin del pipe anterior.
              */
             if (i > 0) {
-                if (dup2(pipes[i - 1][0], STDIN_FILENO) < 0) {
+
+                if (dup2(
+                        pipes[i - 1][0],
+                        STDIN_FILENO) < 0) {
+
                     perror("dup2 stdin");
                     _exit(1);
                 }
             }
+
+
+            /*
+             * Si no es el último comando,
+             * stdout va al siguiente pipe.
+             */
+            if (i < cantidadComandos - 1) {
+
+                if (dup2(
+                        pipes[i][1],
+                        STDOUT_FILENO) < 0) {
+
+                    perror("dup2 stdout");
+                    _exit(1);
+                }
+            }
+
+
+            /*
+             * Después de dup2 todos estos
+             * descriptores deben cerrarse.
+             */
+            for (int j = 0;
+                 j < cantidadPipes;
+                 j++) {
+
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+
+
+            /*
+             * Aplicamos <, > y >>.
+             */
+            int cantidadLimpia =
+                aplicarRedirecciones(
+                    comandos[i].arrayArgumentos,
+                    comandos[i].cantidadArgumentos
+                );
+
+
+            if (cantidadLimpia <= 0) {
+                _exit(1);
+            }
+
+
+            execvp(
+                comandos[i].arrayArgumentos[0],
+                comandos[i].arrayArgumentos
+            );
+
+
+            fprintf(
+                stderr,
+                "miShell: %s: %s\n",
+                comandos[i].arrayArgumentos[0],
+                strerror(errno)
+            );
+
+
+            _exit(127);
         }
+
+
+        /*
+         * PADRE
+         */
+        pids[creados++] = pid;
     }
 
+
+    /*
+     * La shell tampoco necesita los pipes.
+     */
+    for (int i = 0;
+         i < cantidadPipes;
+         i++) {
+
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+
+
+    free(pipes);
+
+
+    /*
+     * PIPELINE EN BACKGROUND
+     */
+    if (esBackground) {
+
+        int numero =
+            agregarJob(
+                pids,
+                cantidadComandos,
+                comandoOriginal
+            );
+
+
+        if (numero > 0) {
+
+            printf("[%d] %d\n", numero, (int)pids[0]);
+
+        } else {
+
+            fprintf(
+                stderr,
+                "miShell: lista de jobs llena\n"
+            );
+        }
+
+
+        restaurarMascara(
+            &mascaraAnterior
+        );
+    }
+
+
+    /*
+     * PIPELINE EN FOREGROUND
+     */
+    else {
+
+        for (int i = 0;
+             i < cantidadComandos;
+             i++) {
+
+            while (waitpid(
+                       pids[i],
+                       NULL,
+                       0) < 0 &&
+                   errno == EINTR) {
+            }
+        }
+
+
+        restaurarMascara(
+            &mascaraAnterior
+        );
+    }
 }
 
 int main(void) {
-char lineaLeida[MAX_LINE];
-char *argumentos[MAX_ARGS];
+
+    char lineaLeida[MAX_LINE];
+    char *argumentos[MAX_ARGS];
 
     /*
-     Ignoramos las señales SIGINT y SIGQUIT para que ellas no terminen miShell
+     * La shell no debe morir con
+     * Ctrl+C ni Ctrl+\.
      */
-
     ignorarSignal(SIGINT);
     ignorarSignal(SIGQUIT);
-instalarManejadorSigchld();
+    instalarManejadorSigchld();
 
-while (1) {
-    mostrarPrompt();
 
-    if (hayJobsTerminados) {
-        notificarJobsTerminados();
+    while (1) {
+        /*
+         * Primero mostramos jobs terminados.
+         */
+        if (hayJobsTerminados) {
+            notificarJobsTerminados();
+        }
+
+        mostrarPrompt();
+
+        /*
+         * Ctrl+D
+         */
+        if (fgets(
+                lineaLeida,
+                sizeof(lineaLeida),
+                stdin) == NULL) {
+
+            printf("\n");
+            break;
+        }
+
+        /*
+         * Quitamos el salto de línea.
+         */
+        lineaLeida[
+            strcspn(lineaLeida, "\n")
+        ] = '\0';
+
+        /*
+         * Quitamos espacios finales.
+         */
+        size_t largo =
+            strlen(lineaLeida);
+
+
+        while (largo > 0 &&
+               isspace(
+                   (unsigned char)
+                   lineaLeida[largo - 1])) {
+
+            lineaLeida[--largo] = '\0';
+        }
+
+        /*
+         * Revisamos si termina en &
+         */
+        int esBackground = 0;
+
+        if (largo > 0 &&
+            lineaLeida[largo - 1] == '&') {
+
+            esBackground = 1;
+
+            lineaLeida[--largo] = '\0';
+
+
+            while (largo > 0 &&
+                   isspace(
+                       (unsigned char)
+                       lineaLeida[largo - 1])) {
+
+                lineaLeida[--largo] = '\0';
+            }
+        }
+
+        /*
+         * Línea vacía.
+         */
+        if (largo == 0) {
+            continue;
+        }
+
+        /*
+         * Guardamos el texto original
+         * antes de modificarlo con strtok.
+         */
+        char comandoOriginal[MAX_LINE];
+
+        snprintf(
+            comandoOriginal,
+            sizeof(comandoOriginal),
+            "%s",
+            lineaLeida
+        );
+
+        /*
+         * Si contiene |, usamos
+         * la implementación de pipelines.
+         */
+        if (strchr(lineaLeida, '|') != NULL) {
+
+            Comando comandos[MAX_COMANDOS];
+
+            memset(
+                comandos,
+                0,
+                sizeof(comandos)
+            );
+
+            int cantidadComandos =
+                separarPipelines(
+                    lineaLeida,
+                    comandos,
+                    MAX_COMANDOS
+                );
+
+
+            if (cantidadComandos < 0) {
+                continue;
+            }
+
+
+            if (cantidadComandos < 2) {
+
+                fprintf(
+                    stderr,
+                    "miShell: tubería inválida\n"
+                );
+
+                continue;
+            }
+
+
+            ejecutarPipes(
+                comandos,
+                cantidadComandos,
+                esBackground,
+                comandoOriginal
+            );
+
+
+            continue;
+        }
+
+        /*
+         * Comando normal.
+         */
+        int cantidadArgumentos =
+            separarEnTokens(
+                lineaLeida,
+                argumentos,
+                MAX_ARGS
+            );
+
+
+        if (cantidadArgumentos <= 0) {
+            continue;
+        }
+
+        /*
+         * Comandos internos.
+         */
+        if (ejecutarComandoInterno(
+                argumentos,
+                cantidadArgumentos)) {
+
+            continue;
+        }
+
+        /*
+         * Comando externo.
+         */
+        ejecutarComandoExterno(
+            argumentos,
+            cantidadArgumentos,
+            esBackground,
+            comandoOriginal
+        );
     }
-
-    if (fgets(lineaLeida, sizeof(lineaLeida), stdin) == NULL) {
-        printf("\n");
-        break;
-    }
-
-    int cantidadArgumentos = separarEnTokens(lineaLeida, argumentos, MAX_ARGS);
-    if (cantidadArgumentos == 0) {
-        continue;
-    }
-
-    int esBackground = 0;
-        if (strcmp(argumentos[cantidadArgumentos - 1], "&") == 0) {
-        esBackground = 1;
-        cantidadArgumentos--;
-        argumentos[cantidadArgumentos] = NULL;
-    }
-
-
-    if (ejecutarComandoInterno(argumentos, cantidadArgumentos)) {
-       continue;
-    }
-
-    ejecutarComandoExterno(argumentos, cantidadArgumentos, esBackground);
-}
-
-return 0;
+    return 0;
 }
