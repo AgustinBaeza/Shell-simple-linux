@@ -99,15 +99,16 @@ Separa las lineas en tokens
 static int separarEnTokens(char *linea, char *argumentos[], int maxArgumentos){
 
     int cantidadArgumentos = 0;
-    char *token = strtok(linea, " \t\n");
+    char *estadoSeparacion;
+    char *token = strtok_r(linea, " \t\n", &estadoSeparacion);
 
     while (token != NULL){
-        if (cantidadArgumentos > maxArgumentos - 1) {
+        if (cantidadArgumentos >= maxArgumentos - 1) {
             fprintf(stderr, "miShell: Demasiados argumentos. Límite de argumentos: %d", maxArgumentos);
             return -1;
         }
         argumentos[cantidadArgumentos++] = token;
-        token = strtok(NULL, " \t\n");
+        token = strtok_r(NULL, " \t\n", &estadoSeparacion);
     }
 
     argumentos[cantidadArgumentos] = NULL;
@@ -1259,6 +1260,7 @@ static void ejecutarPipes(
         );
     }
 }
+
 
 int main(void) {
 
