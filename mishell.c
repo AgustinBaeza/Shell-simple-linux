@@ -353,8 +353,8 @@ void notificarJobsTerminados(void) {
 }
 
 /* Esta funcion se ejecuta automaticamente cuando muere un proceso hijo */
-void manejadorSigchld(int señal) {
-    (void)señal;
+void manejadorSigchld(int senal) {
+    (void)senal;
     int estadoSalida;
     pid_t pid;
 
@@ -444,8 +444,8 @@ Si no ejecuta el comando retorna 0
  * Manejador de SIGALRM.
  * Solo coloca una bandera para que el ciclo principal actualice pmon.
  */
-static void manejadorSigalrmPmon(int señal) {
-    (void)señal;
+static void manejadorSigalrmPmon(int senal) {
+    (void)senal;
     pmonActualizar = 1;
 }
 
@@ -453,8 +453,8 @@ static void manejadorSigalrmPmon(int señal) {
  * Manejador de Ctrl+C mientras pmon está funcionando.
  * Solo termina pmon; la shell sigue funcionando.
  */
-static void manejadorSigintPmon(int señal) {
-    (void)señal;
+static void manejadorSigintPmon(int senal) {
+    (void)senal;
     pmonSalir = 1;
     pmonActualizar = 1;
 }
