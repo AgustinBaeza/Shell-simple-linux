@@ -10,7 +10,7 @@
 
 ## Compilación
 
-Desde la carpeta donde se encuentran `miShell.c` y el `Makefile`, ejecutar:
+Desde la carpeta donde se encuentran `mishell.c` y el `Makefile`, ejecutar:
 
 ```bash
 make
@@ -19,7 +19,7 @@ make
 Esto generará el ejecutable:
 
 ```text
-miShell
+mishell
 ```
 
 ## Ejecución
@@ -27,7 +27,7 @@ miShell
 Ejecutar:
 
 ```bash
-./miShell
+./mishell
 ```
 
 La shell mostrará un prompt y permitirá ingresar comandos.

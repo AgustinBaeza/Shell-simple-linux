@@ -781,8 +781,9 @@ static void ejecutarPmon(int segundos) {
                 alarm((unsigned int)segundos);
             }
         }
-
-        pause();
+        if (!pmonSalir) {
+            pause();
+        }
     }
 
     alarm(0);
