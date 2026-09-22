@@ -667,7 +667,15 @@ static void mostrarPmon(MedicionPmon mediciones[],
             continue;
         }
 
-        pid_t pid = jobsList[i].pid;
+
+        /*
+         Realizamos un for para iterar sobre todos los procesos
+         Es decir, tenemos en cuenta al pipeline, si hay varios comandos separados poe '|', mostramos a cada uno en jobs
+         */
+
+        for (int j = 0; j < jobsList[i].cantidadProcesos; j++) {
+
+        pid_t pid = jobsList[i].pids[j];
         char estado;
         unsigned long long cpuTicks;
 
@@ -699,7 +707,9 @@ static void mostrarPmon(MedicionPmon mediciones[],
                             pid,
                             cpuTicks,
                             ahora);
+        }
     }
+
 
     fflush(stdout);
 }
