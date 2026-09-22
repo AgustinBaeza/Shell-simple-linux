@@ -32,6 +32,8 @@ typedef struct {
     int   terminado;
 } Job;
 
+
+
 static Job jobsList[MAX_JOBS];
 static int siguienteNumeroJob = 1;
 static volatile sig_atomic_t hayJobsTerminados = 0;
@@ -64,6 +66,18 @@ typedef struct {
     char *arrayArgumentos[MAX_ARGS];
     int cantidadArgumentos;
 } Comando;
+/*
+ Definimos una estructura en la que se agruparan los comandos a la hora mostrar los comandos que están siendo ejecutados
+Se guardan los datos relevantes de cada comando para que luego sean mostrados
+Tambien se utiliza la variable de cpu para poder ordenar los comandos segun los comandos que más cpu consumen
+ */
+typedef struct {
+    pid_t pid;
+    char  comando[MAX_COMANDO];
+    char  estado;
+    double cpu;
+    long  rss;
+} FilaPmon;
 
 /*
  Verifica si el comando entregado es interno o externo.
@@ -654,6 +668,17 @@ static const char *textoEstadoPmon(char estado) {
             return "desconocido";
     }
 }
+/*
+ Compara dos filas dadas del pmon, retorna 1 si la segunda o la b es mayor a la primera o a, -1 si la primera o a es mayor a la segunda o b
+ */
+static int compararFilaPmon(const void *a, const void *b) {
+    const FilaPmon *fa = (const FilaPmon *)a;
+    const FilaPmon *fb = (const FilaPmon *)b;
+
+    if (fa->cpu < fb->cpu) return 1;
+    if (fa->cpu > fb->cpu) return -1;
+    return 0;
+}
 
 /*
  * Dibuja la tabla de pmon.
@@ -663,6 +688,9 @@ static void mostrarPmon(MedicionPmon mediciones[],
                         long ticksPorSegundo) {
     struct timespec ahora;
     clock_gettime(CLOCK_MONOTONIC, &ahora);
+
+    static FilaPmon filas[MAX_JOBS*MAX_COMANDOS];
+    int cantidadFilas = 0;
 
     printf("\033[H\033[J");
 
@@ -702,12 +730,24 @@ static void mostrarPmon(MedicionPmon mediciones[],
         double cpu =
             calcularCpuPmon(anterior, cpuTicks, ahora, ticksPorSegundo);
 
-        printf("%d\t%-24s %-16s %8.2f\t%ld\n",
-               (int)pid,
-               jobsList[i].comando,
-               textoEstadoPmon(estado),
-               cpu,
-               rss);
+            filas[cantidadFilas].pid = pid;
+            //Copiamos los comandos de jobsList a filas
+            strncpy(filas[cantidadFilas].comando,
+        jobsList[i].comando,
+        sizeof(filas[cantidadFilas].comando) - 1);
+            /*
+             *Colocamos de forma manual el end of file character o '\0' para evitar posibles errores
+             *si es que jobsList[i].comando es más grande que filas[cantidadFilas].comando
+            */
+
+            filas[cantidadFilas].comando[sizeof(filas[cantidadFilas].comando) - 1] = '\0';
+
+            //Guardamos los datos de cada comando
+            filas[cantidadFilas].estado = estado;
+            filas[cantidadFilas].cpu = cpu;
+            filas[cantidadFilas].rss = rss;
+            cantidadFilas++;
+
 
         guardarMedicionPmon(mediciones,
                             cantidadMediciones,
@@ -716,7 +756,27 @@ static void mostrarPmon(MedicionPmon mediciones[],
                             ahora);
         }
     }
+    //Sorteamos u ordenamos las filas
+    qsort(filas, cantidadFilas, sizeof(FilaPmon), compararFilaPmon);
 
+    for (int i = 0; i < cantidadFilas; i++) {
+        //Resaltamos el primer proceso o el proceso que más consume cpu con magenta
+        if (i==0) {
+            printf("\033[1;35m");
+        }
+
+        printf("%d\t%-24s %-16s %8.2f\t%ld\n",
+               (int)filas[i].pid,
+               filas[i].comando,
+               textoEstadoPmon(filas[i].estado),
+               filas[i].cpu,
+               filas[i].rss);
+
+        //Reseteamos el color de lo que se imprime para que el resto de procesos se vean con el color de default
+        if (i==0) {
+            printf("\033[0m");
+        }
+    }
 
     fflush(stdout);
 }
