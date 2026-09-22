@@ -35,6 +35,8 @@ typedef struct {
 static Job jobsList[MAX_JOBS];
 static int siguienteNumeroJob = 1;
 static volatile sig_atomic_t hayJobsTerminados = 0;
+static int leerStatPmon(pid_t pid, char *estado, unsigned long long *cpuTicks);
+static const char *textoEstadoPmon(char estado);
 
 /*
  * Variables utilizadas por pmon.
@@ -325,9 +327,14 @@ void listarJobs(void) {
 
         if (jobsList[i].activo == 1) {
 
-            printf("[%d] %d Ejecutando %s\n",
+            char estado;
+            unsigned long long cpuTicks;
+
+            leerStatPmon(jobsList[i].pid, &estado, &cpuTicks);
+                printf("[%d] %d %s %s\n",
                    jobsList[i].numero,
                    jobsList[i].pid,
+                   textoEstadoPmon(estado),
                    jobsList[i].comando);
         }
     }
