@@ -1,5 +1,7 @@
-# Shell- Sistemas Operativos 
-
+# Shell Simple 
+###  Asignatura: Sistemas Operativos 
+###  Docente: Cecilia Hernández
+###  Ayudante: Oscar Castillo Vega
 ## Requisitos
 
 * Linux
@@ -30,7 +32,7 @@ Ejecutar:
 
 La shell mostrará un prompt y permitirá ingresar comandos.
 
-## Ejemplos
+## Ejemplos de uso de miShell
 
 Comando normal:
 
@@ -81,6 +83,12 @@ pmon 2
 ```
 
 Para salir de `pmon`, presionar:
+
+```text
+Ctrl+C
+```
+
+Para terminar un proceso ejecutandose dentro de miShell, pero no a miShell, presionar:
 
 ```text
 Ctrl+C
